@@ -1,25 +1,273 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
+title: 'Reproducible Research: Peer Assessment 1'
+output:
   html_document:
     keep_md: true
+  pdf_document: default
+  word_document: default
 ---
 
+```{r setup, include=FALSE}
 
-## Loading and preprocessing the data
+```
 
-
-
-## What is mean total number of steps taken per day?
-
+#### Load packages
 
 
-## What is the average daily activity pattern?
+##### lubridate
 
+```{r, echo=TRUE, message=FALSE}
+if(!"lubridate" %in% rownames(installed.packages())){
+        install.packages("lubridate")}
+if(!"lubridate" %in% rownames(.packages())){
+        library(lubridate)}
+```
+
+
+##### dplyr
+
+```{r, echo=TRUE, message=FALSE}
+if(!"dplyr" %in% rownames(installed.packages())){
+        install.packages("dplyr")}
+if(!"dplyr" %in% rownames(.packages())){
+        library(dplyr)}
+```
+
+
+##### ggplot2
+
+```{r, echo=TRUE, message=FALSE}
+if(!"ggplot2" %in% rownames(installed.packages())){
+        install.packages("ggplot2")}
+if(!"ggplot2" %in% rownames(.packages())){
+        library(ggplot2)}
+```
+
+
+## Load and Preprocess Data
+
+###1: Load CSV from [Activity monitoring data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip)
+```{r}
+#create directory
+if(!file.exists("./activitydata")){dir.create("./activitydata")}
+
+#download data (zip)
+if(!file.exists("./activitydata/activitydata.zip")){download.file("https://github.com/jcobb00/RepData_PeerAssessment1/raw/master/activity.zip",destfile = "./activitydata/activitydata.zip")}
+
+#unzip data
+if(!file.exists("./activitydata/activity.csv")){unzip("./activitydata/activitydata.zip",exdir = "./activitydata")}
+
+#create activity data frame 
+activity.data <- read.csv("./activitydata/activity.csv", header = TRUE)
+```
+
+
+###2: Preprocess the data
+
+##### Format as date with lubridate
+
+```{r}
+activity.data$date <- ymd(activity.data$date)
+```
+
+
+##### Add day of week column
+
+```{r}
+activity.data <- cbind(activity.data,weekdays(activity.data$date))
+colnames(activity.data)[4] <- "dayofweek"
+```
+
+
+##### Add weekday/weekend column
+
+```{r}
+activity.data <- cbind(activity.data,activity.data$dayofweek=='Saturday'|activity.data$dayofweek=='Sunday')
+colnames(activity.data)[5] <- "weekend"
+activity.data$weekend <- ifelse(activity.data$weekend == TRUE, "weekend", "weekday")
+```
+
+
+##### Use interval fraction to calculate ~time (interval/2355)
+
+```{r}
+activity.data <- cbind(activity.data,activity.data$date+(activity.data$interval/2355))
+colnames(activity.data)[6] <- "date.time"
+```
+
+
+##### Reorder columns
+
+```{r}
+activity.data <- activity.data[,c(6,2,4,5,3,1)]
+```
+
+
+####Preprocessed data
+
+```{r, message=FALSE}
+head(activity.data)
+str(activity.data)
+```
+
+
+## Daily Steps
+
+
+###1: Calculate total steps taken each day
+
+```{r, message=FALSE}
+total.steps.per.day <- na.omit(activity.data) %>%
+        group_by(date) %>%
+        summarise(totalsteps=sum(steps))
+print(total.steps.per.day)
+```
+
+
+###2: Make a histogram of the total number of steps taken each day
+
+```{r total steps per day hist, message=FALSE, fig.width=8, fig.height=6}
+ggplot(data=total.steps.per.day, aes(total.steps.per.day$totalsteps)) + 
+        labs(title ="Total Steps per Day Histogram") +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        xlab("Total Steps") +
+        scale_y_continuous(breaks = seq(0, 20, by = 2)) +
+        scale_x_continuous(breaks = seq(0, 25000, by = 5000)) +
+        geom_histogram(binwidth = 2500)
+```
+
+
+###3: Calculate and report the mean and median total number of steps taken per day
+
+```{r, message=FALSE}
+
+daily.mean.median <- total.steps.per.day%>%
+        summarise(mean=mean(totalsteps), median=median(totalsteps))
+print(daily.mean.median)
+```
+
+
+## Average daily activity pattern
+
+##### (first) Calculate average steps per interval across all days
+
+```{r, message=FALSE}
+interval.daily.avg <- na.omit(activity.data) %>%
+        group_by(interval) %>%
+        summarise(mean=mean(steps))
+print(interval.daily.avg)
+```
+
+
+### 1: Plot 5-minute intervals and average steps taken across all days
+
+```{r avg daily activity pattern, message=FALSE, fig.width=8, fig.height=6}
+ggplot(data=interval.daily.avg, aes(x=interval, y=mean)) + 
+        labs(title ="Average Daily Activity Pattern") +
+        theme(plot.title = element_text(hjust = 0.5))+
+        ylab("Steps") +
+        xlab("Daily Interval") +
+        scale_x_continuous(breaks = seq(from=0,to=2400,by=300)) +
+        geom_line(stat="identity")
+```
+
+
+### 2: Largest 5 minute interval averaged across all days
+
+```{r}
+arrange(interval.daily.avg,desc(mean))[1,]
+```
 
 
 ## Imputing missing values
 
 
+### 1: Calculate and report the total number of missing values in the dataset
 
-## Are there differences in activity patterns between weekdays and weekends?
+```{r}
+as.numeric(sum(is.na(activity.data$steps)))
+```
+
+### 2: Devise a replacement plan
+        All NAs occur on 8 days, use average interval for those days
+
+```{r}
+daily.nas <- activity.data %>%
+        group_by(date) %>%
+        tally(is.na(steps)) %>%
+        arrange(desc(n))
+daily.nas[1:8,]
+```
+
+
+### 3: Set NAs to interval average
+
+```{r}
+mean.na <- activity.data
+mean.na[is.na(activity.data)] <- mean(activity.data$steps,na.rm = TRUE)
+head(mean.na)
+```
+
+
+### 4(a): Plot a histogram of total steps per day (na=mean)
+
+```{r avg steps per day hist na mean, fig.width=8, fig.height=6}
+daily.mean.median.na <- mean.na %>%
+        group_by(date)%>% 
+        summarise(mean=mean(steps), median=median(steps))
+
+ggplot(data=daily.mean.median.na, aes(daily.mean.median.na$mean)) + 
+        labs(title ="Avg Steps per Day Histogram (na=mean)") +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        xlab("Avg Steps") +
+        stat_bin(binwidth = 10)
+        geom_histogram()
+```
+
+
+### 4(b): Calculate daily mean and median (na=mean)
+        Mean does not change, median becomes the mean
+
+```{r}
+daily.mean.median.na <- mean.na %>%
+        group_by(date) %>%
+        summarise(totalsteps=sum(steps)) %>%
+        summarise(mean=mean(totalsteps), median=median(totalsteps))
+print(daily.mean.median.na)
+```
+
+
+## Differences in activity patterns between weekdays and weekends
+
+### 1: Create a new factor variable: "weekday" and "weekend" (created during preprocessing)
+
+```{r}
+if(!"weekend" %in% colnames(activity.data)) {
+        activity.data <- cbind(activity.data,activity.data$dayofweek=='Saturday'|activity.data$dayofweek=='Sunday')
+        colnames(activity.data)[5] <- "weekend"
+        activity.data$weekend <- ifelse(activity.data$weekend == TRUE, "weekend", "weekday")}
+```
+
+
+### 2: Panel plot of interval steps averaged across all days and grouped by weekday and weekend
+
+##### (first) Calculate average interval steps across weekdays and weekends
+
+```{r}
+avg.day.of.week <- na.omit(activity.data) %>%
+        group_by(interval,weekend) %>%
+        summarise(avgsteps=mean(steps)) %>%
+        arrange(desc(weekend))
+```
+
+```{r avg interval per weekday weekend, fig.width=8, fig.height=6}
+ggplot(data=avg.day.of.week, aes(x=avg.day.of.week$interval, y=avg.day.of.week$avgsteps)) + 
+        labs(title ="Average Interval per Weekday/Weekend") +
+        theme(plot.title = element_text(hjust = 0.5)) +
+        facet_grid(weekend ~ .) +
+        ylab("Steps") +
+        xlab("Daily Interval") +
+        geom_line(stat="identity")
+```
+
+
